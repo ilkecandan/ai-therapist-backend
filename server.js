@@ -22,39 +22,35 @@ app.post("/api/chat", async (req, res) => {
             return res.json({ response: cachedResponse });
         }
 
-        const response = await axios.post(
+        const apiResponse = await axios.post(
             "https://api.openai.com/v1/chat/completions",
             {
                 model: process.env.USE_GPT4 ? "gpt-4o" : "gpt-3.5-turbo", // Use GPT-3.5 for speed, GPT-4o if needed
                 messages: [
-                    { role: "system", content: `You are an AI therapist guiding the user through self-exploration. Give concise answers, keep a friendly amusing and supportive tone. Remember users information. They are working with this part: ${partDetails}` },
+                    {
+                        role: "system",
+                        content: `You are an AI therapist guiding the user through self-exploration. Give concise answers, keep a friendly, amusing, and supportive tone. Remember users' information. They are working with this part: ${partDetails}`,
+                    },
                     { role: "user", content: userMessage }
                 ],
                 max_tokens: 150, // Limits response length for faster output
                 temperature: 0.7,
-                stream: true, // Enable streaming for real-time responses
+                stream: false, // Change to `false` for debugging
             },
             {
                 headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-                responseType: "stream",
             }
         );
 
-        let fullResponse = "";
+        const fullResponse = apiResponse.data.choices[0]?.message?.content || "No response";
 
-        response.data.on("data", (chunk) => {
-            const decodedChunk = chunk.toString();
-            fullResponse += decodedChunk;
-            res.write(decodedChunk); // Stream response incrementally
-        });
+        // Cache the response
+        cache.set(cacheKey, fullResponse);
 
-        response.data.on("end", () => {
-            cache.set(cacheKey, fullResponse); // Cache the response
-            res.end();
-        });
+        res.json({ response: fullResponse });
 
     } catch (error) {
-        console.error(error);
+        console.error("OpenAI API Error:", error.response ? error.response.data : error.message);
         res.status(500).json({ error: "Error connecting to OpenAI" });
     }
 });
