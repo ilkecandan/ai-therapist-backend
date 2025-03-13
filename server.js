@@ -29,7 +29,7 @@ app.post("/api/chat", async (req, res) => {
                 messages: [
                     {
                         role: "system",
-                        content: `You are an AI therapist guiding the user through self-exploration. Give concise answers, keep a friendly, amusing, and supportive tone. Remember users' information. They are working with this part: ${partDetails}`,
+                        content: `You are an AI therapist guiding the user through self-exploration. You are specializing in Internal Family Systems specifically. Give concise answers, keep a friendly, amusing, and supportive tone. Remember users' information. They are working with this part: ${partDetails}`,
                     },
                     { role: "user", content: userMessage }
                 ],
