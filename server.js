@@ -25,7 +25,7 @@ app.post("/api/chat", async (req, res) => {
         const apiResponse = await axios.post(
             "https://api.openai.com/v1/chat/completions",
             {
-                model: process.env.USE_GPT4 ? "gpt-4o" : "gpt-3.5-turbo", // Use GPT-3.5 for speed, GPT-4o if needed
+                model: "gpt-4o-mini", // ✅ Fixed model selection
                 messages: [
                     {
                         role: "system",
