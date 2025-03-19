@@ -6,7 +6,14 @@ require("dotenv").config();
 
 const app = express();
 app.use(express.json());
-app.use(cors());
+
+// ✅ Define CORS settings to allow requests only from your GitHub Pages frontend
+const corsOptions = {
+    origin: "http://ilkecandan.github.io", // ✅ ONLY allow requests from this URL
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+    credentials: true
+};
+app.use(cors(corsOptions)); // ✅ Apply CORS settings
 
 const cache = new NodeCache({ stdTTL: 300 }); // Cache responses for 5 minutes
 
@@ -23,22 +30,22 @@ app.post("/api/chat", async (req, res) => {
         }
 
         const apiResponse = await axios.post(
-            "https://api.deepseek.com/v1/chat/completions",  // ✅ Updated to DeepSeek's API
+            "https://api.deepseek.com/v1/chat/completions",
             {
                 model: "deepseek-chat",  // ✅ Cheapest DeepSeek model
                 messages: [
                     {
                         role: "system",
-                        content: `You are an AI therapist guiding the user through self-exploration. You specialize in Internal Family Systems therapy. Keep responses concise, friendly, amusing, and supportive. Remember users' details. They are working with this part: ${partDetails}`
+                        content: `You are an AI therapist guiding the user through self-exploration. You specialize in Internal Family Systems therapy. Keep responses concise, friendly, amusing, and supportive. They are working with this part: ${partDetails}`
                     },
                     { role: "user", content: userMessage }
                 ],
-                max_tokens: 150, // Limits response length for faster output
+                max_tokens: 150,
                 temperature: 0.7,
-                stream: false // Change to `false` for debugging
+                stream: false
             },
             {
-                headers: { Authorization: `Bearer ${process.env.DEEPSEEKAPI}` }  // ✅ Updated API key variable
+                headers: { Authorization: `Bearer ${process.env.DEEPSEEKAPI}` }
             }
         );
 
