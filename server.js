@@ -23,22 +23,22 @@ app.post("/api/chat", async (req, res) => {
         }
 
         const apiResponse = await axios.post(
-            "https://api.openai.com/v1/chat/completions",
+            "https://api.deepseek.com/v1/chat/completions",  // ✅ Updated to DeepSeek's API
             {
-                model: "gpt-4o-mini", // ✅ Fixed model selection
+                model: "deepseek-chat",  // ✅ Cheapest DeepSeek model
                 messages: [
                     {
                         role: "system",
-                        content: `You are an AI therapist guiding the user through self-exploration. You are specializing in Internal Family Systems specifically. Give concise answers, keep a friendly, amusing, and supportive tone. Remember users' information. They are working with this part: ${partDetails}`,
+                        content: `You are an AI therapist guiding the user through self-exploration. You specialize in Internal Family Systems therapy. Keep responses concise, friendly, amusing, and supportive. Remember users' details. They are working with this part: ${partDetails}`
                     },
                     { role: "user", content: userMessage }
                 ],
                 max_tokens: 150, // Limits response length for faster output
                 temperature: 0.7,
-                stream: false, // Change to `false` for debugging
+                stream: false // Change to `false` for debugging
             },
             {
-                headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+                headers: { Authorization: `Bearer ${process.env.DEEPSEEKAPI}` }  // ✅ Updated API key variable
             }
         );
 
@@ -50,8 +50,8 @@ app.post("/api/chat", async (req, res) => {
         res.json({ response: fullResponse });
 
     } catch (error) {
-        console.error("OpenAI API Error:", error.response ? error.response.data : error.message);
-        res.status(500).json({ error: "Error connecting to OpenAI" });
+        console.error("DeepSeek API Error:", error.response ? error.response.data : error.message);
+        res.status(500).json({ error: "Error connecting to DeepSeek API" });
     }
 });
 
