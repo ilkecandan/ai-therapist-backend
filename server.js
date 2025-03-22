@@ -9,7 +9,8 @@ app.use(express.json());
 
 // ✅ Define CORS settings to allow requests only from your GitHub Pages frontend
 const corsOptions = {
-origin: ["http://ilkecandan.github.io", "https://ilkecandan.github.io"],
+origin: ["http://ilkecandan.github.io", "https://ilkecandan.github.io",  "https://cabinetofselves.space",
+    "http://cabinetofselves.space" ],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     credentials: true
 };
