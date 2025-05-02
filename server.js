@@ -63,7 +63,6 @@ app.post("/api/chat", async (req, res) => {
     }
 });
 // At the top, with your other requires:
-const axios = require('axios');
 
 // Spotify credentials (store these in Railway secrets or .env)
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
