@@ -62,6 +62,36 @@ app.post("/api/chat", async (req, res) => {
         res.status(500).json({ error: "Error connecting to DeepSeek API" });
     }
 });
+// At the top, with your other requires:
+const axios = require('axios');
+
+// Spotify credentials (store these in Railway secrets or .env)
+const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+
+// Add this route:
+app.get('/spotify-token', async (req, res) => {
+  try {
+    const auth = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64');
+    const response = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      'grant_type=client_credentials',
+      {
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }
+      }
+    );
+    res.json({ access_token: response.data.access_token });
+  } catch (error) {
+    console.error('Spotify token error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to fetch Spotify token' });
+  }
+});
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
