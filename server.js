@@ -210,16 +210,15 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// [Rest of your routes remain largely the same, but consider adding similar enhancements]
-
 // Health check endpoint with more comprehensive checks
 app.get('/health', async (req, res) => {
   try {
     // Test database connection with timeout
     await Promise.race([
       pool.query('SELECT 1'),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Database timeout')), 3000)
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Database timeout')), 3000);
+      })
     ]);
     
     // Check cache health
@@ -263,7 +262,7 @@ app.use((err, req, res, next) => {
   }
   
   // Database errors
-  if (err.code && err.code.startsWith('22') || err.code === 'ECONNREFUSED') {
+  if ((err.code && err.code.startsWith('22')) || err.code === 'ECONNREFUSED') {
     return res.status(503).json({ 
       error: 'Service unavailable',
       code: 'DATABASE_ERROR'
