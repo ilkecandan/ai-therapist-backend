@@ -28,6 +28,9 @@ pool.connect()
 app.use(helmet());
 app.use(morgan('combined'));
 
+// Enable trust proxy
+app.set('trust proxy', 1); // Trust the first proxy (if behind a reverse proxy)
+
 // Rate limiting configuration
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -35,6 +38,7 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later'
 });
 app.use(limiter);
+
 
 // CORS configuration
 const allowedOrigins = [
