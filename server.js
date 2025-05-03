@@ -6,9 +6,23 @@ const NodeCache = require('node-cache');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 // Initialize Express app
 const app = express();
+
+// Database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Test database connection
+pool.connect()
+  .then(() => console.log('Connected to PostgreSQL database'))
+  .catch(err => console.error('Database connection error:', err.stack));
 
 // Enhanced security middleware
 app.use(helmet());
@@ -52,6 +66,10 @@ const cache = new NodeCache({
   checkperiod: 120 // check for expired items every 2 minutes
 });
 
+// JWT configuration
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1d';
+
 // Spotify configuration
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
@@ -60,8 +78,218 @@ if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
   console.warn('Spotify credentials not configured - Spotify features will be disabled');
 }
 
-// DeepSeek API endpoint
-app.post('/api/chat', async (req, res) => {
+// Auth middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) return res.sendStatus(401);
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+};
+
+// User Routes
+app.post('/api/register', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Check if user already exists
+    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (existingUser.rows.length > 0) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    // Hash password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
+    // Create user
+    const newUser = await pool.query(
+      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, created_at',
+      [email, passwordHash]
+    );
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: newUser.rows[0].id, email: newUser.rows[0].email },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    res.status(201).json({
+      user: newUser.rows[0],
+      token
+    });
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Find user
+    const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (user.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Check password
+    const isValidPassword = await bcrypt.compare(password, user.rows[0].password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.rows[0].id, email: user.rows[0].email },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    res.json({
+      user: {
+        id: user.rows[0].id,
+        email: user.rows[0].email,
+        created_at: user.rows[0].created_at
+      },
+      token
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Parts Routes
+app.post('/api/parts', authenticateToken, async (req, res) => {
+  try {
+    const { name, image } = req.body;
+    const userId = req.user.userId;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const newPart = await pool.query(
+      'INSERT INTO parts (user_id, name, image) VALUES ($1, $2, $3) RETURNING *',
+      [userId, name, image]
+    );
+
+    res.status(201).json(newPart.rows[0]);
+
+  } catch (error) {
+    console.error('Create part error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/parts', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const parts = await pool.query(
+      'SELECT * FROM parts WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+
+    res.json(parts.rows);
+
+  } catch (error) {
+    console.error('Get parts error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/parts/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    const part = await pool.query(
+      'SELECT * FROM parts WHERE id = $1 AND user_id = $2',
+      [id, userId]
+    );
+
+    if (part.rows.length === 0) {
+      return res.status(404).json({ error: 'Part not found' });
+    }
+
+    res.json(part.rows[0]);
+
+  } catch (error) {
+    console.error('Get part error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/parts/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+    const { name, image } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+
+    const updatedPart = await pool.query(
+      'UPDATE parts SET name = $1, image = $2, updated_at = NOW() WHERE id = $3 AND user_id = $4 RETURNING *',
+      [name, image, id, userId]
+    );
+
+    if (updatedPart.rows.length === 0) {
+      return res.status(404).json({ error: 'Part not found' });
+    }
+
+    res.json(updatedPart.rows[0]);
+
+  } catch (error) {
+    console.error('Update part error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/parts/:id', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    const deletedPart = await pool.query(
+      'DELETE FROM parts WHERE id = $1 AND user_id = $2 RETURNING *',
+      [id, userId]
+    );
+
+    if (deletedPart.rows.length === 0) {
+      return res.status(404).json({ error: 'Part not found' });
+    }
+
+    res.json({ message: 'Part deleted successfully' });
+
+  } catch (error) {
+    console.error('Delete part error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Updated DeepSeek API endpoint with user context
+app.post('/api/chat', authenticateToken, async (req, res) => {
   try {
     // Validate request
     if (!req.body.message) {
@@ -69,8 +297,25 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const userMessage = req.body.message;
-    const partDetails = req.body.partDetails ? req.body.partDetails.slice(0, 200) : '';
-    const cacheKey = JSON.stringify({ userMessage, partDetails });
+    const partId = req.body.partId;
+    let partDetails = '';
+
+    // If partId is provided, get part details from database
+    if (partId) {
+      const part = await pool.query(
+        'SELECT * FROM parts WHERE id = $1 AND user_id = $2',
+        [partId, req.user.userId]
+      );
+      
+      if (part.rows.length > 0) {
+        partDetails = `They are working with a part named "${part.rows[0].name}"`;
+        if (part.rows[0].image) {
+          partDetails += ` which they visualize as: ${part.rows[0].image}`;
+        }
+      }
+    }
+
+    const cacheKey = JSON.stringify({ userId: req.user.userId, userMessage, partDetails });
 
     // Check cache
     const cachedResponse = cache.get(cacheKey);
@@ -86,7 +331,7 @@ app.post('/api/chat', async (req, res) => {
         messages: [
           {
             role: 'system',
-            content: `You are an AI therapist guiding the user through self-exploration. You specialize in Internal Family Systems therapy. Keep responses concise, friendly, amusing, and supportive. They are working with this part: ${partDetails}`
+            content: `You are an AI therapist guiding the user through self-exploration. You specialize in Internal Family Systems therapy. Keep responses concise, friendly, amusing, and supportive. ${partDetails}`
           },
           { role: 'user', content: userMessage }
         ],
@@ -186,7 +431,7 @@ app.get('/spotify-token', async (req, res) => {
   }
 });
 
-// New Spotify recommendations endpoint
+// Spotify recommendations endpoint
 app.get('/spotify-recommendations', async (req, res) => {
   try {
     const { mood } = req.query;
@@ -285,17 +530,30 @@ app.get('/spotify-recommendations', async (req, res) => {
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    services: {
-      deepseek: !!process.env.DEEPSEEKAPI,
-      spotify: !!(SPOTIFY_CLIENT_ID && SPOTIFY_CLIENT_SECRET)
-    }
-  });
+// Health check endpoint with database check
+app.get('/health', async (req, res) => {
+  try {
+    // Test database connection
+    await pool.query('SELECT 1');
+    
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      services: {
+        database: 'connected',
+        deepseek: !!process.env.DEEPSEEKAPI,
+        spotify: !!(SPOTIFY_CLIENT_ID && SPOTIFY_CLIENT_SECRET)
+      }
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({
+      status: 'unhealthy',
+      error: 'Database connection failed',
+      details: error.message
+    });
+  }
 });
 
 // Error handling middleware
