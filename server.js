@@ -252,5 +252,129 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
   }
 });
 
+// Add these endpoints to your server.js file, before the app.listen call
+
+// Get all parts for a user
+app.get("/parts", authenticateToken, async (req, res) => {
+  try {
+    const parts = await pool.query(
+      'SELECT * FROM parts WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    res.json(parts.rows);
+  } catch (error) {
+    console.error("Error fetching parts:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get a single part
+app.get("/parts/:id", authenticateToken, async (req, res) => {
+  try {
+    const part = await pool.query(
+      'SELECT * FROM parts WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    
+    if (part.rows.length === 0) {
+      return res.status(404).json({ error: "Part not found" });
+    }
+    
+    res.json(part.rows[0]);
+  } catch (error) {
+    console.error("Error fetching part:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Create or update a part
+app.post("/parts", authenticateToken, async (req, res) => {
+  try {
+    const { id, name, image, known_since, wants, works_with, clashes_with, role } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: "Part name is required" });
+    }
+    
+    let part;
+    if (id) {
+      // Update existing part
+      part = await pool.query(
+        `UPDATE parts 
+         SET name = $1, image = $2, known_since = $3, wants = $4, 
+             works_with = $5, clashes_with = $6, role = $7, updated_at = NOW()
+         WHERE id = $8 AND user_id = $9
+         RETURNING *`,
+        [name, image, known_since, wants, works_with, clashes_with, role, id, req.user.id]
+      );
+    } else {
+      // Create new part
+      part = await pool.query(
+        `INSERT INTO parts 
+         (user_id, name, image, known_since, wants, works_with, clashes_with, role, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+         RETURNING *`,
+        [req.user.id, name, image, known_since, wants, works_with, clashes_with, role]
+      );
+    }
+    
+    res.status(id ? 200 : 201).json(part.rows[0]);
+  } catch (error) {
+    console.error("Error saving part:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Delete a part
+app.delete("/parts/:id", authenticateToken, async (req, res) => {
+  try {
+    await pool.query(
+      'DELETE FROM parts WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting part:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Get journal entries for a part
+app.get("/parts/:id/journal", authenticateToken, async (req, res) => {
+  try {
+    const entries = await pool.query(
+      'SELECT * FROM part_journals WHERE part_id = $1 AND user_id = $2 ORDER BY created_at DESC',
+      [req.params.id, req.user.id]
+    );
+    res.json(entries.rows);
+  } catch (error) {
+    console.error("Error fetching journal entries:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Add journal entry
+app.post("/parts/:id/journal", authenticateToken, async (req, res) => {
+  try {
+    const { content } = req.body;
+    
+    if (!content) {
+      return res.status(400).json({ error: "Journal content is required" });
+    }
+    
+    const entry = await pool.query(
+      `INSERT INTO part_journals 
+       (user_id, part_id, content, created_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING *`,
+      [req.user.id, req.params.id, content]
+    );
+    
+    res.status(201).json(entry.rows[0]);
+  } catch (error) {
+    console.error("Error adding journal entry:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
