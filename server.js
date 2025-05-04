@@ -206,7 +206,7 @@ app.get("/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// Existing chat endpoint (protected)
+// Chat endpoint
 app.post("/api/chat", authenticateToken, async (req, res) => {
   try {
     const userMessage = req.body.message;
@@ -251,8 +251,6 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Error connecting to DeepSeek API" });
   }
 });
-
-// Add these endpoints to your server.js file, before the app.listen call
 
 // Get all parts for a user
 app.get("/parts", authenticateToken, async (req, res) => {
@@ -376,5 +374,6 @@ app.post("/parts/:id/journal", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
