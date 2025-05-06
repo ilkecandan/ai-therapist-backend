@@ -21,7 +21,8 @@ const corsOptions = {
     "http://cabinetofselves.space"
   ],
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-  credentials: true
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 app.use(cors(corsOptions));
 
@@ -310,72 +311,138 @@ app.post("/reset-password", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-// Save a new part
-app.post("/parts", authenticateToken, async (req, res) => {
+// Parts endpoints
+app.get("/parts/:id", authenticateToken, async (req, res) => {
   try {
-    console.log("Incoming /parts request:", req.body, "User:", req.user); // 👈 Add debug log
-
-    const {
-      name,
-      description,
-      role,
-      positiveIntentions,
-      triggers,
-      relationships,
-      image,
-      journal
-    } = req.body;
-
+    const { id } = req.params;
     const result = await pool.query(
-      `INSERT INTO parts 
-        (user_id, name, description, role, positive_intentions, triggers, relationships, image, journal)
-       VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [
-        req.user.id,
-        name,
-        description,
-        role,
-        positiveIntentions,
-        triggers,
-        relationships,
-        image,
-        journal
-      ]
+      'SELECT * FROM parts WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
     );
 
-    res.status(201).json({ message: "Part saved successfully", part: result.rows[0] });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Part not found" });
+    }
+
+    res.json(result.rows[0]);
   } catch (error) {
-    console.error("Error saving part:", error); // 👈 Make sure we log the real error
+    console.error("Error fetching part:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
+app.post("/parts", authenticateToken, async (req, res) => {
+  try {
+    const {
+      name,
+      image,
+      known_since,
+      wants,
+      works_with,
+      clashes_with,
+      role
+    } = req.body;
+
     const result = await pool.query(
-      `INSERT INTO parts (user_id, name, description, role, positive_intentions, triggers, relationships, image, journal)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO parts (user_id, name, image, known_since, wants, works_with, clashes_with, role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
         req.user.id,
         name,
-        description,
-        role,
-        positiveIntentions,
-        triggers,
-        relationships,
         image,
-        journal
+        known_since,
+        wants,
+        works_with,
+        clashes_with,
+        role
       ]
     );
 
-    res.status(201).json({ message: "Part saved successfully", part: result.rows[0] });
+    res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error("Error saving part:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
+app.put("/parts/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      image,
+      known_since,
+      wants,
+      works_with,
+      clashes_with,
+      role
+    } = req.body;
+
+    const result = await pool.query(
+      `UPDATE parts 
+       SET name = $1, image = $2, known_since = $3, wants = $4, 
+           works_with = $5, clashes_with = $6, role = $7
+       WHERE id = $8 AND user_id = $9
+       RETURNING *`,
+      [
+        name,
+        image,
+        known_since,
+        wants,
+        works_with,
+        clashes_with,
+        role,
+        id,
+        req.user.id
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Part not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error updating part:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Journal endpoints
+app.get("/parts/:partId/journal", authenticateToken, async (req, res) => {
+  try {
+    const { partId } = req.params;
+    const result = await pool.query(
+      'SELECT * FROM journal_entries WHERE part_id = $1 AND user_id = $2 ORDER BY created_at DESC',
+      [partId, req.user.id]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching journal entries:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post("/parts/:partId/journal", authenticateToken, async (req, res) => {
+  try {
+    const { partId } = req.params;
+    const { content } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO journal_entries (user_id, part_id, content, created_at)
+       VALUES ($1, $2, $3, NOW())
+       RETURNING *`,
+      [req.user.id, partId, content]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Error adding journal entry:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
