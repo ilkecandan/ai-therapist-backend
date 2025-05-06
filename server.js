@@ -409,6 +409,19 @@ app.put("/parts/:id", authenticateToken, async (req, res) => {
   }
 });
 
+// Get all parts for the authenticated user
+app.get("/parts", authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM parts WHERE user_id = $1 ORDER BY created_at DESC',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching parts:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 // Journal endpoints
 app.get("/parts/:partId/journal", authenticateToken, async (req, res) => {
   try {
