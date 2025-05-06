@@ -74,10 +74,10 @@ const authenticateToken = (req, res, next) => {
 // User registration endpoint
 app.post("/register", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { name, email, password } = req.body;
     
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "Name, email and password are required" });
     }
     
     const userExists = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
@@ -89,8 +89,8 @@ app.post("/register", async (req, res) => {
     const passwordHash = await bcrypt.hash(password, salt);
     
     const newUser = await pool.query(
-      'INSERT INTO users (email, password_hash, created_at) VALUES ($1, $2, NOW()) RETURNING id, email, created_at',
-      [email, passwordHash]
+      'INSERT INTO users (name, email, password_hash, created_at) VALUES ($1, $2, $3, NOW()) RETURNING id, name, email, created_at',
+      [name, email, passwordHash]
     );
     
     const token = jwt.sign(
@@ -103,6 +103,7 @@ app.post("/register", async (req, res) => {
       token,
       user: {
         id: newUser.rows[0].id,
+        name: newUser.rows[0].name,
         email: newUser.rows[0].email,
         created_at: newUser.rows[0].created_at
       }
@@ -143,6 +144,7 @@ app.post("/login", async (req, res) => {
       token,
       user: {
         id: user.rows[0].id,
+        name: user.rows[0].name,
         email: user.rows[0].email,
         created_at: user.rows[0].created_at,
         hasAccess: user.rows[0].has_access || false
@@ -182,7 +184,7 @@ app.post("/validate-access-code", authenticateToken, async (req, res) => {
 app.get("/profile", authenticateToken, async (req, res) => {
   try {
     const user = await pool.query(
-      'SELECT id, email, created_at, has_access FROM users WHERE id = $1',
+      'SELECT id, name, email, created_at, has_access FROM users WHERE id = $1',
       [req.user.id]
     );
     
@@ -237,8 +239,6 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Error connecting to DeepSeek API" });
   }
 });
-
-// [Keep all your parts and journal endpoints exactly the same...]
 
 // Request password reset with email sending
 app.post("/request-password-reset", async (req, res) => {
