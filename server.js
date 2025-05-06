@@ -306,29 +306,45 @@ app.post("/reset-password", async (req, res) => {
   try {
     const { token, newPassword } = req.body;
 
+    // Validate input
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: "Missing token or password" });
+    }
+
+    const trimmedToken = token.trim();
+
+    console.log("🔐 Received token:", trimmedToken);
+
+    // Check if token exists and is not expired
     const user = await pool.query(
       'SELECT * FROM users WHERE reset_token = $1 AND reset_expires > NOW()',
-      [token]
+      [trimmedToken]
     );
 
     if (user.rows.length === 0) {
+      console.log("❌ Invalid or expired token:", trimmedToken);
       return res.status(400).json({ error: "Invalid or expired token" });
     }
 
+    // Hash new password and update user
     const hashed = await bcrypt.hash(newPassword, 10);
     await pool.query(
       `UPDATE users 
        SET password_hash = $1, reset_token = NULL, reset_expires = NULL 
        WHERE reset_token = $2`,
-      [hashed, token]
+      [hashed, trimmedToken]
     );
 
+    console.log("✅ Password successfully reset for:", user.rows[0].email);
     res.json({ message: "Password successfully reset." });
+
   } catch (err) {
-    console.error("Reset password error:", err);
+    console.error("❌ Reset password error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+
 
 // Parts endpoints
 app.get("/parts/:id", authenticateToken, async (req, res) => {
