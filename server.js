@@ -316,6 +316,8 @@ app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 // Save a new part
 app.post("/parts", authenticateToken, async (req, res) => {
   try {
+    console.log("Incoming /parts request:", req.body, "User:", req.user); // 👈 Add debug log
+
     const {
       name,
       description,
@@ -326,6 +328,32 @@ app.post("/parts", authenticateToken, async (req, res) => {
       image,
       journal
     } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO parts 
+        (user_id, name, description, role, positive_intentions, triggers, relationships, image, journal)
+       VALUES 
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        req.user.id,
+        name,
+        description,
+        role,
+        positiveIntentions,
+        triggers,
+        relationships,
+        image,
+        journal
+      ]
+    );
+
+    res.status(201).json({ message: "Part saved successfully", part: result.rows[0] });
+  } catch (error) {
+    console.error("Error saving part:", error); // 👈 Make sure we log the real error
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
     const result = await pool.query(
       `INSERT INTO parts (user_id, name, description, role, positive_intentions, triggers, relationships, image, journal)
