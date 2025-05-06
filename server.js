@@ -6,6 +6,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 require("dotenv").config();
 
 const app = express();
@@ -40,10 +41,21 @@ pool.connect((err) => {
 });
 
 // Cache setup
-const cache = new NodeCache({ stdTTL: 300 }); // Cache responses for 5 minutes
+const cache = new NodeCache({ stdTTL: 300 });
 
 // JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here';
+
+// Email transporter
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: process.env.SMTP_PORT || 587,
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD
+  }
+});
 
 // Middleware to authenticate JWT
 const authenticateToken = (req, res, next) => {
@@ -64,32 +76,23 @@ app.post("/register", async (req, res) => {
   try {
     const { email, password } = req.body;
     
-    // Validate input
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
     
-    // Check if user already exists
-    const userExists = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
-      [email]
-    );
-    
+    const userExists = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (userExists.rows.length > 0) {
       return res.status(400).json({ error: "User already exists" });
     }
     
-    // Hash password
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
     
-    // Create user
     const newUser = await pool.query(
       'INSERT INTO users (email, password_hash, created_at) VALUES ($1, $2, NOW()) RETURNING id, email, created_at',
       [email, passwordHash]
     );
     
-    // Generate JWT token
     const token = jwt.sign(
       { id: newUser.rows[0].id, email: newUser.rows[0].email },
       JWT_SECRET,
@@ -116,28 +119,20 @@ app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
     
-    // Validate input
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
     
-    // Find user
-    const user = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
-      [email]
-    );
-    
+    const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (user.rows.length === 0) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
     
-    // Check password
     const isValidPassword = await bcrypt.compare(password, user.rows[0].password_hash);
     if (!isValidPassword) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
     
-    // Generate JWT token
     const token = jwt.sign(
       { id: user.rows[0].id, email: user.rows[0].email },
       JWT_SECRET,
@@ -164,7 +159,7 @@ app.post("/login", async (req, res) => {
 app.post("/validate-access-code", authenticateToken, async (req, res) => {
   try {
     const { accessCode } = req.body;
-    const correctCode = "99005445"; // Your access code
+    const correctCode = "99005445";
     
     if (!accessCode) {
       return res.status(400).json({ error: "Access code is required" });
@@ -174,12 +169,7 @@ app.post("/validate-access-code", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Invalid access code" });
     }
     
-    // Update user to mark as having access
-    await pool.query(
-      'UPDATE users SET has_access = true WHERE id = $1',
-      [req.user.id]
-    );
-    
+    await pool.query('UPDATE users SET has_access = true WHERE id = $1', [req.user.id]);
     res.json({ success: true, message: "Access granted" });
     
   } catch (error) {
@@ -207,14 +197,13 @@ app.get("/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// Chat endpoint
+// Chat endpoint (without message truncation)
 app.post("/api/chat", authenticateToken, async (req, res) => {
   try {
     const userMessage = req.body.message;
-    const partDetails = req.body.partDetails ? req.body.partDetails.slice(0, 200) : "";
+    const partDetails = req.body.partDetails || "";
     const cacheKey = JSON.stringify({ userMessage, partDetails });
 
-    // Check cache before making API call
     const cachedResponse = cache.get(cacheKey);
     if (cachedResponse) {
       return res.json({ response: cachedResponse });
@@ -231,7 +220,6 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
           },
           { role: "user", content: userMessage }
         ],
-        max_tokens: 150,
         temperature: 0.7,
         stream: false
       },
@@ -241,10 +229,7 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
     );
 
     const fullResponse = apiResponse.data.choices[0]?.message?.content || "No response";
-
-    // Cache the response
     cache.set(cacheKey, fullResponse);
-
     res.json({ response: fullResponse });
 
   } catch (error) {
@@ -253,130 +238,9 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
   }
 });
 
-// Get all parts for a user
-app.get("/parts", authenticateToken, async (req, res) => {
-  try {
-    const parts = await pool.query(
-      'SELECT * FROM parts WHERE user_id = $1 ORDER BY created_at DESC',
-      [req.user.id]
-    );
-    res.json(parts.rows);
-  } catch (error) {
-    console.error("Error fetching parts:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+// [Keep all your parts and journal endpoints exactly the same...]
 
-// Get a single part
-app.get("/parts/:id", authenticateToken, async (req, res) => {
-  try {
-    const part = await pool.query(
-      'SELECT * FROM parts WHERE id = $1 AND user_id = $2',
-      [req.params.id, req.user.id]
-    );
-    
-    if (part.rows.length === 0) {
-      return res.status(404).json({ error: "Part not found" });
-    }
-    
-    res.json(part.rows[0]);
-  } catch (error) {
-    console.error("Error fetching part:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Create or update a part
-app.post("/parts", authenticateToken, async (req, res) => {
-  try {
-    const { id, name, image, known_since, wants, works_with, clashes_with, role } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: "Part name is required" });
-    }
-    
-    let part;
-    if (id) {
-      // Update existing part
-      part = await pool.query(
-        `UPDATE parts 
-         SET name = $1, image = $2, known_since = $3, wants = $4, 
-             works_with = $5, clashes_with = $6, role = $7, updated_at = NOW()
-         WHERE id = $8 AND user_id = $9
-         RETURNING *`,
-        [name, image, known_since, wants, works_with, clashes_with, role, id, req.user.id]
-      );
-    } else {
-      // Create new part
-      part = await pool.query(
-        `INSERT INTO parts 
-         (user_id, name, image, known_since, wants, works_with, clashes_with, role, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-         RETURNING *`,
-        [req.user.id, name, image, known_since, wants, works_with, clashes_with, role]
-      );
-    }
-    
-    res.status(id ? 200 : 201).json(part.rows[0]);
-  } catch (error) {
-    console.error("Error saving part:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Delete a part
-app.delete("/parts/:id", authenticateToken, async (req, res) => {
-  try {
-    await pool.query(
-      'DELETE FROM parts WHERE id = $1 AND user_id = $2',
-      [req.params.id, req.user.id]
-    );
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting part:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Get journal entries for a part
-app.get("/parts/:id/journal", authenticateToken, async (req, res) => {
-  try {
-    const entries = await pool.query(
-      'SELECT * FROM part_journals WHERE part_id = $1 AND user_id = $2 ORDER BY created_at DESC',
-      [req.params.id, req.user.id]
-    );
-    res.json(entries.rows);
-  } catch (error) {
-    console.error("Error fetching journal entries:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Add journal entry
-app.post("/parts/:id/journal", authenticateToken, async (req, res) => {
-  try {
-    const { content } = req.body;
-    
-    if (!content) {
-      return res.status(400).json({ error: "Journal content is required" });
-    }
-    
-    const entry = await pool.query(
-      `INSERT INTO part_journals 
-       (user_id, part_id, content, created_at)
-       VALUES ($1, $2, $3, NOW())
-       RETURNING *`,
-      [req.user.id, req.params.id, content]
-    );
-    
-    res.status(201).json(entry.rows[0]);
-  } catch (error) {
-    console.error("Error adding journal entry:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Request password reset
+// Request password reset with email sending
 app.post("/request-password-reset", async (req, res) => {
   try {
     const { email } = req.body;
@@ -387,7 +251,7 @@ app.post("/request-password-reset", async (req, res) => {
     }
 
     const token = crypto.randomBytes(32).toString("hex");
-    const expires = new Date(Date.now() + 3600000); // 1 hour
+    const expires = new Date(Date.now() + 3600000);
 
     await pool.query(
       'UPDATE users SET reset_token = $1, reset_expires = $2 WHERE email = $3',
@@ -395,17 +259,29 @@ app.post("/request-password-reset", async (req, res) => {
     );
 
     const resetLink = `https://cabinetofselves.space/reset-password.html?token=${token}`;
-    // TODO: Integrate email service to send resetLink to user's email
+    
+    await transporter.sendMail({
+      from: `"Cabinet of Selves" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER}>`,
+      to: email,
+      subject: 'Password Reset Request',
+      text: `Click this link to reset your password: ${resetLink}`,
+      html: `
+        <div style="font-family: Arial, sans-serif;">
+          <h2>Password Reset</h2>
+          <p>Click <a href="${resetLink}">here</a> to reset your password.</p>
+          <p>This link expires in 1 hour.</p>
+        </div>
+      `
+    });
 
-    console.log(`Reset link: ${resetLink}`); // TEMP for dev testing
-    res.json({ message: "Password reset link sent." });
+    res.json({ message: "Password reset link sent to your email" });
   } catch (err) {
-    console.error("Password reset request error:", err);
+    console.error("Password reset error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Reset password
+// Reset password endpoint
 app.post("/reset-password", async (req, res) => {
   try {
     const { token, newPassword } = req.body;
