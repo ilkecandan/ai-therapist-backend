@@ -235,7 +235,7 @@ Then offer one clear, emotionally precise question to deepen the conversation.
 
 Keep your tone calm, warm, a bit playful when helpful, and never clinical or cold.
 
-You are currently helping the user work with this part: ${partDetails} `
+`
           },
           { role: "user", content: userMessage }
         ],
