@@ -326,6 +326,8 @@ app.post("/reset-password", async (req, res) => {
 });
 
 // Parts endpoints
+
+// Fetch a specific part for the authenticated user
 app.get("/parts/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -345,6 +347,7 @@ app.get("/parts/:id", authenticateToken, async (req, res) => {
   }
 });
 
+// Create a new part for the authenticated user
 app.post("/parts", authenticateToken, async (req, res) => {
   try {
     const {
@@ -380,7 +383,7 @@ app.post("/parts", authenticateToken, async (req, res) => {
   }
 });
 
-// Add delete part functionality
+// Delete a specific part by its ID for the authenticated user
 app.delete("/parts/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -401,7 +404,7 @@ app.delete("/parts/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Get all parts for the authenticated user
+// Fetch all parts for the authenticated user
 app.get("/parts", authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
@@ -414,6 +417,7 @@ app.get("/parts", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
