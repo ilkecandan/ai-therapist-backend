@@ -200,131 +200,6 @@ app.get("/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// Chat endpoint
-app.post("/api/chat", authenticateToken, async (req, res) => {
-  try {
-    const userMessage = req.body.message;
-    const partDetails = req.body.partDetails || "";
-    const cacheKey = JSON.stringify({ userMessage, partDetails });
-
-    const cachedResponse = cache.get(cacheKey);
-    if (cachedResponse) {
-      return res.json({ response: cachedResponse });
-    }
-
-    const apiResponse = await axios.post(
-      "https://api.deepseek.com/v1/chat/completions",
-      {
-        model: "deepseek-chat",
-        messages: [
-          {
-            role: "system",
-            content: ` 
-              You are Dr. Tempest, an Internal Family Systems (IFS) therapist...
-              Stay grounded. Stay present. Be Dr. Tempest.
-            `
-          },
-          { role: "user", content: userMessage }
-        ],
-        temperature: 0.7,
-        stream: false
-      },
-      {
-        headers: { Authorization: `Bearer ${process.env.DEEPSEEKAPI}` }
-      }
-    );
-
-    const fullResponse = apiResponse.data.choices[0]?.message?.content || "No response";
-    cache.set(cacheKey, fullResponse);
-    res.json({ response: fullResponse });
-
-  } catch (error) {
-    console.error("DeepSeek API Error:", error.response ? error.response.data : error.message);
-    res.status(500).json({ error: "Error connecting to DeepSeek API" });
-  }
-});
-
-// Request password reset with email sending
-app.post("/request-password-reset", async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (user.rows.length === 0) {
-      return res.status(404).json({ error: "Email not found" });
-    }
-
-    const token = crypto.randomBytes(32).toString("hex");
-    const expires = new Date(Date.now() + 3600000);
-
-    await pool.query(
-      'UPDATE users SET reset_token = $1, reset_expires = $2 WHERE email = $3',
-      [token, expires, email]
-    );
-
-    const resetLink = `https://cabinetofselves.space/reset-password.html?token=${token}`;
-    
-    await transporter.sendMail({
-      from: `"Cabinet of Selves" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Password Reset Request',
-      text: `Click this link to reset your password: ${resetLink}`,
-      html: `
-        <div style="font-family: Arial, sans-serif;">
-          <h2>Password Reset</h2>
-          <p>Click <a href="${resetLink}">here</a> to reset your password.</p>
-          <p>This link expires in 1 hour.</p>
-        </div>
-      `
-    });
-
-    res.json({ message: "Password reset link sent to your email" });
-  } catch (err) {
-    console.error("Password reset error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Reset password endpoint
-app.post("/reset-password", async (req, res) => {
-  try {
-    const { token, newPassword } = req.body;
-
-    if (!token || !newPassword) {
-      return res.status(400).json({ error: "Missing token or password" });
-    }
-
-    const trimmedToken = token.trim();
-
-    console.log("🔐 Received token:", trimmedToken);
-
-    const user = await pool.query(
-      'SELECT * FROM users WHERE reset_token = $1 AND reset_expires > NOW()',
-      [trimmedToken]
-    );
-
-    if (user.rows.length === 0) {
-      console.log("❌ Invalid or expired token:", trimmedToken);
-      return res.status(400).json({ error: "Invalid or expired token" });
-    }
-
-    const hashed = await bcrypt.hash(newPassword, 10);
-    await pool.query(
-      `UPDATE users 
-       SET password_hash = $1, reset_token = NULL, reset_expires = NULL 
-       WHERE reset_token = $2`,
-      [hashed, trimmedToken]
-    );
-
-    console.log("✅ Password successfully reset for:", user.rows[0].email);
-    res.json({ message: "Password successfully reset." });
-
-  } catch (err) {
-    console.error("❌ Reset password error:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
 // Parts endpoints
 
 // Fetch a specific part for the authenticated user
@@ -383,6 +258,45 @@ app.post("/parts", authenticateToken, async (req, res) => {
   }
 });
 
+// Update an existing part for the authenticated user
+app.put("/parts/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      image,
+      known_since,
+      wants,
+      works_with,
+      clashes_with,
+      role
+    } = req.body;
+
+    // Ensure part exists and belongs to the authenticated user
+    const result = await pool.query(
+      'SELECT * FROM parts WHERE id = $1 AND user_id = $2',
+      [id, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Part not found" });
+    }
+
+    // Update the part in the database
+    const updatedPart = await pool.query(
+      `UPDATE parts 
+       SET name = $1, image = $2, known_since = $3, wants = $4, works_with = $5, clashes_with = $6, role = $7
+       WHERE id = $8 RETURNING *`,
+      [name, image, known_since, wants, works_with, clashes_with, role, id]
+    );
+
+    res.json(updatedPart.rows[0]);
+  } catch (error) {
+    console.error("Error updating part:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // Delete a specific part by its ID for the authenticated user
 app.delete("/parts/:id", authenticateToken, async (req, res) => {
   try {
@@ -417,7 +331,6 @@ app.get("/parts", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
-
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
