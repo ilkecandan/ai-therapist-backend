@@ -201,6 +201,48 @@ app.get("/profile", authenticateToken, async (req, res) => {
 });
 
 // Parts endpoints
+app.post("/api/chat", authenticateToken, async (req, res) => {
+  try {
+    const { message, style, therapyModel, systemPrompt } = req.body;
+
+    if (!message || !style || !therapyModel) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const deepseekApiKey = process.env.DEEPSEEKAPI;
+    if (!deepseekApiKey) {
+      return res.status(500).json({ error: "DeepSeek API key is not configured" });
+    }
+
+    const response = await axios.post(
+      "https://api.deepseek.com/v1/chat/completions", // Replace with actual DeepSeek endpoint if different
+      {
+        model: "deepseek-chat", // Adjust based on actual model name
+        messages: [
+          ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+          { role: "user", content: message }
+        ],
+        temperature: 0.7
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${deepseekApiKey}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const aiReply = response.data.choices?.[0]?.message?.content || "I'm here for you.";
+
+    res.json({ response: aiReply });
+
+  } catch (error) {
+    console.error("Error in chat route:", error.response?.data || error.message);
+    res.status(500).json({ error: "Error generating AI response" });
+  }
+});
+
+
 
 // Fetch a specific part for the authenticated user
 app.get("/parts/:id", authenticateToken, async (req, res) => {
