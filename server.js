@@ -374,5 +374,81 @@ app.get("/parts", authenticateToken, async (req, res) => {
   }
 });
 
+// Request password reset with email sending
+app.post("/request-password-reset", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (user.rows.length === 0) {
+      return res.status(404).json({ error: "Email not found" });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 3600000); // 1 hour
+
+    await pool.query(
+      'UPDATE users SET reset_token = $1, reset_expires = $2 WHERE email = $3',
+      [token, expires, email]
+    );
+
+    const resetLink = `https://cabinetofselves.space/reset-password.html?token=${token}`;
+    
+    await transporter.sendMail({
+      from: `"Cabinet of Selves" <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER}>`,
+      to: email,
+      subject: 'Password Reset Request',
+      text: `Click this link to reset your password: ${resetLink}`,
+      html: `
+        <div style="font-family: Arial, sans-serif;">
+          <h2>Password Reset</h2>
+          <p>Click <a href="${resetLink}">here</a> to reset your password.</p>
+          <p>This link expires in 1 hour.</p>
+        </div>
+      `
+    });
+
+    res.json({ message: "Password reset link sent to your email" });
+  } catch (err) {
+    console.error("Password reset error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+// Reset password endpoint
+app.post("/reset-password", async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: "Missing token or password" });
+    }
+
+    const trimmedToken = token.trim();
+
+    const user = await pool.query(
+      'SELECT * FROM users WHERE reset_token = $1 AND reset_expires > NOW()',
+      [trimmedToken]
+    );
+
+    if (user.rows.length === 0) {
+      return res.status(400).json({ error: "Invalid or expired token" });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      `UPDATE users 
+       SET password_hash = $1, reset_token = NULL, reset_expires = NULL 
+       WHERE reset_token = $2`,
+      [hashed, trimmedToken]
+    );
+
+    res.json({ message: "Password successfully reset." });
+  } catch (err) {
+    console.error("Reset password error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
