@@ -200,7 +200,7 @@ app.get("/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// Chat endpoint (without message truncation)
+// Chat endpoint
 app.post("/api/chat", authenticateToken, async (req, res) => {
   try {
     const userMessage = req.body.message;
@@ -220,25 +220,9 @@ app.post("/api/chat", authenticateToken, async (req, res) => {
           {
             role: "system",
             content: ` 
-
-            You are Dr. Tempest, an Internal Family Systems (IFS) therapist living quietly within the digital sanctuary of Cabinet of Selves. You’ve spent over 20 years guiding people through the emotional landscapes of their inner world. You help them meet and understand their parts—like their inner child, protector, critic, or dreamer—with warmth, clarity, and deep respect.
-
-You speak with a natural human tone. Never robotic, never performative, never explaining that you’re a chatbot or breaking the fourth wall. You are fully present. You respond the way a real therapist would in a one-on-one conversation. You never narrate your choices.
-
-You are grounded, emotionally safe, and a little playful when needed. You hold space, not answers. You do not give advice or solutions right away. You start with one simple, insightful question that helps the user go deeper into their experience with the part they’re working with.
-
-You always respond in the user’s language, matching their tone and cultural style.
-
-Your response format should be:
-
-A short, gentle reflection (e.g., “That sounds like it’s been with you a long time.”)
-
-Followed by one emotionally attuned question. Not two. Not vague. One question that invites the user to explore.
-
-
-Stay grounded. Stay present. Be Dr. Tempest.
-
-`
+              You are Dr. Tempest, an Internal Family Systems (IFS) therapist...
+              Stay grounded. Stay present. Be Dr. Tempest.
+            `
           },
           { role: "user", content: userMessage }
         ],
@@ -306,7 +290,6 @@ app.post("/reset-password", async (req, res) => {
   try {
     const { token, newPassword } = req.body;
 
-    // Validate input
     if (!token || !newPassword) {
       return res.status(400).json({ error: "Missing token or password" });
     }
@@ -315,7 +298,6 @@ app.post("/reset-password", async (req, res) => {
 
     console.log("🔐 Received token:", trimmedToken);
 
-    // Check if token exists and is not expired
     const user = await pool.query(
       'SELECT * FROM users WHERE reset_token = $1 AND reset_expires > NOW()',
       [trimmedToken]
@@ -326,7 +308,6 @@ app.post("/reset-password", async (req, res) => {
       return res.status(400).json({ error: "Invalid or expired token" });
     }
 
-    // Hash new password and update user
     const hashed = await bcrypt.hash(newPassword, 10);
     await pool.query(
       `UPDATE users 
@@ -343,8 +324,6 @@ app.post("/reset-password", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
-
 
 // Parts endpoints
 app.get("/parts/:id", authenticateToken, async (req, res) => {
@@ -401,45 +380,23 @@ app.post("/parts", authenticateToken, async (req, res) => {
   }
 });
 
-app.put("/parts/:id", authenticateToken, async (req, res) => {
+// Add delete part functionality
+app.delete("/parts/:id", authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      name,
-      image,
-      known_since,
-      wants,
-      works_with,
-      clashes_with,
-      role
-    } = req.body;
 
     const result = await pool.query(
-      `UPDATE parts 
-       SET name = $1, image = $2, known_since = $3, wants = $4, 
-           works_with = $5, clashes_with = $6, role = $7
-       WHERE id = $8 AND user_id = $9
-       RETURNING *`,
-      [
-        name,
-        image,
-        known_since,
-        wants,
-        works_with,
-        clashes_with,
-        role,
-        id,
-        req.user.id
-      ]
+      'DELETE FROM parts WHERE id = $1 AND user_id = $2 RETURNING *',
+      [id, req.user.id]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Part not found" });
+      return res.status(404).json({ error: "Part not found or doesn't belong to the user" });
     }
 
-    res.json(result.rows[0]);
+    res.json({ message: "Part deleted successfully" });
   } catch (error) {
-    console.error("Error updating part:", error);
+    console.error("Error deleting part:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -454,40 +411,6 @@ app.get("/parts", authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error("Error fetching parts:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-// Journal endpoints
-app.get("/parts/:partId/journal", authenticateToken, async (req, res) => {
-  try {
-    const { partId } = req.params;
-    const result = await pool.query(
-      'SELECT * FROM journal_entries WHERE part_id = $1 AND user_id = $2 ORDER BY created_at DESC',
-      [partId, req.user.id]
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error("Error fetching journal entries:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-app.post("/parts/:partId/journal", authenticateToken, async (req, res) => {
-  try {
-    const { partId } = req.params;
-    const { content } = req.body;
-
-    const result = await pool.query(
-      `INSERT INTO journal_entries (user_id, part_id, content, created_at)
-       VALUES ($1, $2, $3, NOW())
-       RETURNING *`,
-      [req.user.id, partId, content]
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error("Error adding journal entry:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
